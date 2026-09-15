@@ -1,47 +1,72 @@
 from pypdf import PdfReader
 import ollama
+import os
 from database import store_documents
 
 
-#read pdf
-reader=PdfReader("documents/notes.pdf")
+def process_pdf(file):
 
-#extract all page first
-full_text=""
+    # Read PDF
+    filename = os.path.basename(file)
+    reader = PdfReader(file)
 
-for page in reader.pages:
-    text=page.extract_text()
-    full_text+=text
+    # Extract text from all pages
+    full_text = ""
 
-chunk_size=500
-overlap=50
+    for page_number, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
 
-chunks=[]
+        print(f"Page {page_number + 1} extracted characters:", len(text))
 
-start=0
+        full_text += text + "\n"
 
-# create chunks until the end
-while start<len(full_text):
-        end=start+chunk_size #0+500=500
-        chunk=full_text[start:end]
-        chunks.append(chunk)
+    print("Total extracted characters:", len(full_text))
 
-        start=end-overlap#500-50=450 which will again go at end=450+500[450:950]
+    # Stop if PDF has no readable text
+    if not full_text.strip():
+        raise ValueError(
+            "Could not extract text from this PDF."
+        )
 
-       
+    # Create chunks
+    chunk_size = 500
+    overlap = 50
 
-embeddings=[]
+    chunks = []
+    start = 0
 
-for chunk in chunks:
-    response=ollama.embed(
-        model="nomic-embed-text",
-        input=chunk
+    while start < len(full_text):
+
+        end = start + chunk_size
+
+        chunk = full_text[start:end]
+
+        if chunk.strip():
+            chunks.append(chunk)
+
+        start = end - overlap
+
+    print("Created chunks:", len(chunks))
+
+    # Create embeddings
+    embeddings = []
+
+    for chunk in chunks:
+
+        response = ollama.embed(
+            model="nomic-embed-text",
+            input=chunk
+        )
+
+        embeddings.append(response["embeddings"][0])
+
+    print("Created embeddings:", len(embeddings))
+
+    # Store in ChromaDB
+    store_documents(
+        chunks,
+        embeddings,
+        filename
     )
 
-    embeddings.append(response["embeddings"][0])
-
-store_documents(chunks, embeddings)
-
-print("Number of chunks:",len(chunks))
-print("Number of embeddings:",len(embeddings))
-print("First",embeddings[0])
+    return len(chunks)
