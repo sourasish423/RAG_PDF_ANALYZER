@@ -41,7 +41,7 @@ def ask_question(data:Question):
 
     results=collection.query(
         query_embeddings=[question_embedding],
-        n_results=3,
+        n_results=3,#3most popular chunks
         where={"filename": data.filename}
     )
     #gets the relevant chunks
