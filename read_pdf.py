@@ -10,43 +10,49 @@ def process_pdf(file):
     filename = os.path.basename(file)
     reader = PdfReader(file)
 
-    # Extract text from all pages
-    full_text = ""
 
-    for page_number, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
-
-        print(f"Page {page_number + 1} extracted characters:", len(text))
-
-        full_text += text + "\n"
-
-    print("Total extracted characters:", len(full_text))
-
-    # Stop if PDF has no readable text
-    if not full_text.strip():
-        raise ValueError(
-            "Could not extract text from this PDF."
-        )
 
     # Create chunks
     chunk_size = 500
     overlap = 50
 
     chunks = []
-    start = 0
+    chunk_pages = []
 
-    while start < len(full_text):
+    # Extract and chunk page by page
+    for page_number, page in enumerate(reader.pages):
 
-        end = start + chunk_size
+        text = page.extract_text() or ""
 
-        chunk = full_text[start:end]
+        print(
+            f"Page {page_number + 1} extracted characters:",
+            len(text)
+        )
 
-        if chunk.strip():
-            chunks.append(chunk)
+        if not text.strip():
+            continue
 
-        start = end - overlap
+        start = 0
+
+        while start < len(text):
+
+            end = start + chunk_size
+
+            chunk = text[start:end]
+
+            if chunk.strip():
+                chunks.append(chunk)
+                chunk_pages.append(page_number + 1)
+
+            start = end - overlap
 
     print("Created chunks:", len(chunks))
+
+    # Stop if PDF has no readable text
+    if not chunks:
+        raise ValueError(
+            "Could not extract text from this PDF."
+        )
 
     # Create embeddings
     embeddings = []
@@ -66,7 +72,8 @@ def process_pdf(file):
     store_documents(
         chunks,
         embeddings,
-        filename
+        filename,
+        chunk_pages
     )
 
     return len(chunks)

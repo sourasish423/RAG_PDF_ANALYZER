@@ -2,13 +2,31 @@ from fastapi import FastAPI,UploadFile,File
 import ollama
 import shutil
 from pydantic import BaseModel
-from database import collection
+from database import collection,document_exists
 from generate_answer import generate_answer
 from read_pdf import process_pdf
 from fastapi.middleware.cors import CORSMiddleware
 
+# .\venv\Scripts\Activate.ps1
+
 
 app=FastAPI()
+
+
+def load_default_document():
+    filename="Project_Overview.pdf"
+    file_path = "documents/" + filename
+
+    if document_exists(filename):
+        print("Default document already exists in chromadb")
+
+        return
+    
+    print("indexing default project document...")
+    process_pdf(file_path)
+
+
+load_default_document()
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,20 +60,36 @@ def ask_question(data:Question):
     results=collection.query(
         query_embeddings=[question_embedding],
         n_results=3,#3most popular chunks
-        where={"filename": data.filename}
+        where={"filename": data.filename},
+
+        # include=["distances"]# for knowing the distance of chunks
     )
     #gets the relevant chunks
 
     documents=results["documents"][0]
+    #along with chunks i want to print the meatadatas such as from which page the ans is given
+    metadatas = results["metadatas"][0]
+    distances=results["distances"][0]
+
+    print("Retrieved metadata:", metadatas)
+    print("Retrieved distance:", distances)
+
 
     #ask llama to gen ans by sending question and chunks
+
+    if distances[0] > 1.0:
+     return {
+        "answer": "I couldn't find that information in the document.",
+        "sources": []
+    }
 
     answer=generate_answer(
         data.question,
         documents
     )
 
-    return {"answer": answer}
+    return {"answer": answer,
+            "sources": metadatas}
 
 
 @app.post("/upload")
