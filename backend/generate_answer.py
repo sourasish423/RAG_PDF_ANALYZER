@@ -1,5 +1,12 @@
 #here i am using the question and retrieved chunks to llm to generate the ans
 import ollama
+import os
+
+
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+client = ollama.Client(host=OLLAMA_HOST)
+
 
 def generate_answer(question,documents):
     context="\n\n".join(documents)

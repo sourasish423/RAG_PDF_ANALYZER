@@ -64,6 +64,14 @@ def ask_question(data:Question):
 
         # include=["distances"]# for knowing the distance of chunks
     )
+
+# Check whether ChromaDB found any matching chunks
+    if not results["documents"] or not results["documents"][0]:
+        return {
+            "answer": "No matching chunks found. Please check that the filename matches the uploaded PDF.",
+            "sources": []
+            }
+
     #gets the relevant chunks
 
     documents=results["documents"][0]
@@ -78,10 +86,10 @@ def ask_question(data:Question):
     #ask llama to gen ans by sending question and chunks
 
     if distances[0] > 1.0:
-     return {
+        return {
         "answer": "I couldn't find that information in the document.",
         "sources": []
-    }
+             }
 
     answer=generate_answer(
         data.question,

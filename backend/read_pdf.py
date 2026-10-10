@@ -4,6 +4,10 @@ import os
 from database import store_documents
 
 
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+client = ollama.Client(host=OLLAMA_HOST)
+
+
 def process_pdf(file):
 
     # Read PDF
@@ -59,7 +63,7 @@ def process_pdf(file):
 
     for chunk in chunks:
 
-        response = ollama.embed(
+        response = client.embed(
             model="nomic-embed-text",
             input=chunk
         )
