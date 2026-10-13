@@ -1,6 +1,7 @@
-from fastapi import FastAPI,UploadFile,File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 import ollama
 import shutil
+import os
 from pydantic import BaseModel
 from database import collection,document_exists
 from generate_answer import generate_answer
@@ -100,19 +101,51 @@ def ask_question(data:Question):
             "sources": metadatas}
 
 
+
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    file_path = "documents/" + file.filename
+    # Check that a file was provided
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Accept PDF files only
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-   
+    # Use only the filename, not any supplied directory path
+    filename = os.path.basename(file.filename)
+    file_path = os.path.join("documents", filename)
 
-    number_of_chunks = process_pdf(file_path)
+    try:
+        # Save the uploaded PDF
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-    return {
-        "filename": file.filename,
-        "chunks": number_of_chunks,
-        "message": "PDF Received"
-    }
+        # Extract text, create chunks and store embeddings
+        number_of_chunks = process_pdf(file_path)
+
+        if not number_of_chunks:
+            raise HTTPException(
+                status_code=422,
+                detail="No readable text or chunks could be extracted from the PDF"
+            )
+
+        return {
+            "filename": filename,
+            "chunks": number_of_chunks,
+            "message": "PDF received and processed successfully"
+        }
+
+    
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print(f"PDF processing failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process the uploaded PDF"
+        )
+
+    finally:
+        await file.close()
