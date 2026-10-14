@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 
-const API_URL = 'http://localhost:8001'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const DEFAULT_FILENAME = 'Project_Overview.pdf'
 
 async function getErrorMessage(response) {
