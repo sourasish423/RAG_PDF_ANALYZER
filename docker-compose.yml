@@ -1,0 +1,42 @@
+
+services:
+  backend:
+    build: ./backend #it tell docker-compose to build the backend service using the Dockerfile located in the ./backend directory
+    container_name: rag-backend-container
+    ports:
+      - "8000:8000"
+      # This maps ports between your computer and the container.
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - rag-documents:/app/documents
+      - rag-chroma-data:/app/chroma_db
+
+  frontend:
+    build: ./frontend
+    container_name: rag-frontend-container
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+#       This tells Docker Compose to start the backend service before starting the frontend service.
+# Important: This controls startup order, not backend readiness. 
+# The frontend can start while the backend is still initializing.
+#  Your browser may need to retry a request if the backend is not ready yet.
+
+volumes:
+  rag-documents:
+    external: true
+  rag-chroma-data:
+    external: true
+
+    #external: true means that these volumes are not created by this docker-compose file, but are expected to already exist.
+
+# What this configuration does
+# - Builds the backend and frontend from their existing Dockerfiles.
+# - Runs the backend on port 8000 and frontend on port 3000.
+# - Reuses your existing named volumes, so your saved PDFs and ChromaDB data are preserved.
+# - Connects the backend to Ollama running on your Windows machine.
