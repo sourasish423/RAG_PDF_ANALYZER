@@ -3,7 +3,7 @@ import ollama
 import shutil
 import os
 from pydantic import BaseModel
-from database import collection,document_exists
+from database import collection, document_exists, search_bm25
 from generate_answer import generate_answer
 from read_pdf import process_pdf
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,59 +46,147 @@ class Question(BaseModel):
 def home():
     return {"message":"RAG backend is working!"}
 
+
+def reciprocal_rank_fusion(vector_results, bm25_results, k=60):
+    """Combine vector and BM25 rankings using RRF."""
+
+    fused_scores = {}
+    chunk_data = {}
+
+    # Add scores from vector search
+    for rank, item in enumerate(vector_results, start=1):
+        document = item["document"]  # This extracts the chunk's text.
+        key = document
+
+        # The part fused_scores.get(key, 0) means: "Get the score this chunk already has, or use zero if it has no score yet."
+        # That's important because later BM25 may find the same chunk and add another contribution.
+        fused_scores[key] = fused_scores.get(key, 0) + 1 / (k + rank)
+        chunk_data[key] = item
+
+    # Add scores from BM25 search
+    for rank, item in enumerate(bm25_results, start=1):
+        document = item["document"]
+        key = document
+
+        fused_scores[key] = fused_scores.get(key, 0) + 1 / (k + rank)
+        chunk_data[key] = item
+
+    # Sort chunks by their combined score
+    ranked_keys = sorted(
+        fused_scores,
+        key=lambda key: fused_scores[key],
+        reverse=True,
+    )
+
+    return [chunk_data[key] for key in ranked_keys]
+
+
 @app.post("/ask")
-def ask_question(data:Question):
-    #converting the question coming from frontend into embedding
+def ask_question(data: Question):
+    # converting the question coming from frontend into embedding
+    response = ollama.embed(
+        model="nomic-embed-text",
+        input=data.question,  # question receiving from frontend
+    )
+    question_embedding = response["embeddings"][0]
 
-    response=ollama.embed(
-    model="nomic-embed-text",
-    input=data.question #question recieving from frontend
-)
-    question_embedding=response["embeddings"][0]
-
-# searching chromadb 
-
-    results=collection.query(
+    # searching chromadb
+    results = collection.query(
         query_embeddings=[question_embedding],
-        n_results=3,#3most popular chunks
+        n_results=3,  # 3 most popular chunks
         where={"filename": data.filename},
-
         # include=["distances"]# for knowing the distance of chunks
     )
 
-# Check whether ChromaDB found any matching chunks
+    # Check whether ChromaDB found any matching chunks
     if not results["documents"] or not results["documents"][0]:
         return {
             "answer": "No matching chunks found. Please check that the filename matches the uploaded PDF.",
-            "sources": []
-            }
+            "sources": [],
+        }
 
-    #gets the relevant chunks
+    vector_results = []
 
-    documents=results["documents"][0]
-    #along with chunks i want to print the meatadatas such as from which page the ans is given
-    metadatas = results["metadatas"][0]
-    distances=results["distances"][0]
+    for i, document in enumerate(results["documents"][0]):
+        vector_results.append({
+            "document": document,
+            "metadata": results["metadatas"][0][i],
+        })
 
-    print("Retrieved metadata:", metadatas)
-    print("Retrieved distance:", distances)
-
-
-    #ask llama to gen ans by sending question and chunks
-
-    if distances[0] > 1.0:
-        return {
-        "answer": "I couldn't find that information in the document.",
-        "sources": []
-             }
-
-    answer=generate_answer(
+    bm25_results = search_bm25(
         data.question,
-        documents
+        data.filename,
+        top_k=3,
     )
 
-    return {"answer": answer,
-            "sources": metadatas}
+    
+    print("\n=== VECTOR SEARCH RESULTS ===")
+    for rank, item in enumerate(vector_results, start=1):
+        print(f"Rank {rank}: {item['metadata']}")
+        print(item["document"][:200])
+
+    print("\n=== BM25 SEARCH RESULTS ===")
+    for rank, item in enumerate(bm25_results, start=1):
+        print(f"Rank {rank}: {item['metadata']}")
+        print(item["document"][:200])
+
+
+    # gets the relevant chunks
+
+    # Combine the vector and BM25 search rankings
+    fused_results = reciprocal_rank_fusion(
+        vector_results,
+        bm25_results,
+    )
+
+
+    
+    print("\n=== COMBINED RRF RESULTS ===")
+    for rank, item in enumerate(fused_results, start=1):
+        print(f"Rank {rank}: {item['metadata']}")
+        print(item["document"][:200])
+
+
+    # Select the top 3 combined results
+    fused_results = fused_results[:3]
+
+    # Extract the chunk text and page metadata
+    documents = [item["document"] for item in fused_results]
+    metadatas = [item["metadata"] for item in fused_results]
+
+    for i, doc in enumerate(documents):
+        print(f"\n--- Retrieved Chunk {i + 1} ---")
+        print(doc)
+
+    # along with chunks i want to print the metadata such as from which page the answer is given
+    print("Retrieved metadata:", metadatas)
+
+    # ask llama to gen answer by sending question and chunks
+    # if distances[0] > 1.0:
+    #     return {
+    #     "answer": "I couldn't find that information in the document.",
+    #     "sources": []
+    #          }
+
+    answer = generate_answer(
+        data.question,
+        documents,
+    )
+
+    unique_sources = []
+    seen_pages = set()
+
+    for metadata in metadatas:
+        page = metadata.get("page")
+
+        if page not in seen_pages:
+            unique_sources.append(metadata)
+            seen_pages.add(page)
+
+    return {
+        "answer": answer,
+        "sources": unique_sources,
+    }
 
 
 
