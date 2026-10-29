@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from reranker import rerank_chunks
 import ollama
 import shutil
 import os
@@ -93,7 +94,7 @@ def ask_question(data: Question):
     # searching chromadb
     results = collection.query(
         query_embeddings=[question_embedding],
-        n_results=3,  # 3 most popular chunks
+        n_results=10,  # 3 most popular chunks
         where={"filename": data.filename},
         # include=["distances"]# for knowing the distance of chunks
     )
@@ -116,7 +117,7 @@ def ask_question(data: Question):
     bm25_results = search_bm25(
         data.question,
         data.filename,
-        top_k=3,
+        top_k=10,
     )
 
     
@@ -146,13 +147,36 @@ def ask_question(data: Question):
         print(f"Rank {rank}: {item['metadata']}")
         print(item["document"][:200])
 
+    # Rerank all combined candidates using FlashRank
+    candidate_documents = [
+        item["document"] for item in fused_results
+    ]
 
-    # Select the top 3 combined results
-    fused_results = fused_results[:3]
+    candidate_metadatas = [
+        item["metadata"] for item in fused_results
+    ]
 
-    # Extract the chunk text and page metadata
-    documents = [item["document"] for item in fused_results]
-    metadatas = [item["metadata"] for item in fused_results]
+    reranked_results = rerank_chunks(
+        data.question,
+        candidate_documents,
+        candidate_metadatas,
+    )
+
+    print("\n=== FLASHRANK RESULTS ===")
+
+    for rank, item in enumerate(reranked_results, start=1):
+        print(f"Rank {rank}: Score {item['score']:.4f}")
+        print("Metadata:", item["meta"])
+        print(item["text"][:200])
+
+    # Keep the three highest-ranked chunks
+    reranked_results = reranked_results[:3]
+
+    # Extract text and metadata in the format used by the rest of main.py
+    documents = [item["text"] for item in reranked_results]
+    metadatas = [item["meta"] for item in reranked_results]
+
+    
 
     for i, doc in enumerate(documents):
         print(f"\n--- Retrieved Chunk {i + 1} ---")

@@ -1,4 +1,5 @@
 rank-bm25==0.2.2
+flashrank
 fastapi
 uvicorn
 python-multipart
